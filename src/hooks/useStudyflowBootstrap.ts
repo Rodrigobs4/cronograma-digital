@@ -145,7 +145,7 @@ export function useStudyflowBootstrap(userId: string | undefined, userEmail?: st
             daily_available_minutes: 240,
             preferred_block_minutes: 50,
             subjects_per_day: 4,
-            review_method_code: "classic_24_7_30",
+            review_method_code: "evidence_active_recall",
             allow_auto_rebalance: true,
             metadata: {},
           })
@@ -156,6 +156,20 @@ export function useStudyflowBootstrap(userId: string | undefined, userEmail?: st
 
         if (createPlanError) throw createPlanError;
         ensuredPlan = createdPlan;
+      }
+
+      if (ensuredPlan.review_method_code === "classic_24_7_30") {
+        const { data: updatedPlan, error: updateReviewMethodError } = await client
+          .from("study_plans")
+          .update({ review_method_code: "evidence_active_recall" })
+          .eq("id", ensuredPlan.id)
+          .select(
+            "id, workspace_id, title, description, study_type, target_date, planning_mode, status, weekly_available_minutes, daily_available_minutes, preferred_block_minutes, subjects_per_day, review_method_code, allow_auto_rebalance, metadata",
+          )
+          .single();
+
+        if (updateReviewMethodError) throw updateReviewMethodError;
+        ensuredPlan = updatedPlan;
       }
 
       setProfile(ensuredProfile);

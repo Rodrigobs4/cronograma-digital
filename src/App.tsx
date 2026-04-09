@@ -15,11 +15,13 @@ import {
   FileText,
   Layers3,
   ListTree,
+  Download,
   PauseCircle,
   PlayCircle,
   Plus,
   RotateCcw,
   Sparkles,
+  Star,
   Target,
   Trash2,
   UserRound,
@@ -48,6 +50,8 @@ import { useStudyflowNoticeImport } from "./hooks/useStudyflowNoticeImport";
 import { useStudyflowNotices } from "./hooks/useStudyflowNotices";
 import { useStudyflowPlanMetrics } from "./hooks/useStudyflowPlanMetrics";
 import { useStudyflowReviews } from "./hooks/useStudyflowReviews";
+import { useStudyflowQuestionReviews } from "./hooks/useStudyflowQuestionReviews";
+import { useStudyflowErrorNotebook } from "./hooks/useStudyflowErrorNotebook";
 import { useStudyflowSchedule } from "./hooks/useStudyflowSchedule";
 import { useStudyflowSessions } from "./hooks/useStudyflowSessions";
 import { useStudyflowSubjects } from "./hooks/useStudyflowSubjects";
@@ -63,6 +67,7 @@ type StudyFlowView =
   | "perfil";
 
 type PlanSubView = "visao" | "disciplinas" | "cronograma";
+type ReviewSubView = "questoes" | "caderno" | "teoria";
 
 const studyflowViews: Array<{
   key: StudyFlowView;
@@ -212,6 +217,26 @@ export default function App() {
     reload: reloadReviews,
   } = useStudyflowReviews(plan?.id, plan?.review_method_code);
   const {
+    tasks: questionReviewTasks,
+    loading: questionReviewLoading,
+    saving: questionReviewSaving,
+    error: questionReviewError,
+    syncQuestionReviewForSession,
+    completeQuestionReview,
+    removeQuestionReviewTask,
+    reload: reloadQuestionReviews,
+  } = useStudyflowQuestionReviews(plan?.id);
+  const {
+    entries: errorNotebookEntries,
+    loading: errorNotebookLoading,
+    saving: errorNotebookSaving,
+    error: errorNotebookError,
+    createEntry: createErrorNotebookEntry,
+    updateEntry: updateErrorNotebookEntry,
+    removeEntry: removeErrorNotebookEntry,
+    reload: reloadErrorNotebook,
+  } = useStudyflowErrorNotebook(plan?.id);
+  const {
     sessions: todaySessions,
     loading: sessionsLoading,
     saving: sessionsSaving,
@@ -231,6 +256,7 @@ export default function App() {
   const { sessions: metricSessions } = useStudyflowPlanMetrics(plan?.id);
   const [activeView, setActiveView] = useState<StudyFlowView>("dashboard");
   const [activePlanView, setActivePlanView] = useState<PlanSubView>("cronograma");
+  const [activeReviewView, setActiveReviewView] = useState<ReviewSubView>("questoes");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [newSubjectName, setNewSubjectName] = useState("");
@@ -263,6 +289,19 @@ export default function App() {
     questionsWrong: "",
     notes: "",
   });
+  const [questionReviewDrafts, setQuestionReviewDrafts] = useState<
+    Record<string, { answered: string; correct: string }>
+  >({});
+  const [expandedNotebookSubjectIds, setExpandedNotebookSubjectIds] = useState<string[]>([]);
+  const [errorNotebookForm, setErrorNotebookForm] = useState({
+    subjectId: "",
+    topicId: "",
+    title: "",
+    promptSnapshot: "",
+    userErrorReason: "",
+    correctReason: "",
+    avoidanceNote: "",
+  });
   const [timerSeconds, setTimerSeconds] = useState(50 * 60);
   const [timerRunning, setTimerRunning] = useState(false);
   const [activeTimerItemId, setActiveTimerItemId] = useState<string | null>(null);
@@ -286,6 +325,22 @@ export default function App() {
       disciplinesPerDay: plan?.subjects_per_day || 4,
     });
   }, [plan, profile, safePlanStartDate, session?.user.email, updatePlannerSettings, workspace]);
+
+  useEffect(() => {
+    const availableNotebookSubjects = Array.from(
+      new Set(
+        errorNotebookEntries
+          .filter((entry) => entry.entry_status !== "archived")
+          .map((entry) => entry.subject_id ?? "__unlinked__"),
+      ),
+    );
+
+    setExpandedNotebookSubjectIds((current) =>
+      availableNotebookSubjects.filter((subjectId) => current.includes(subjectId)).length > 0
+        ? current.filter((subjectId) => availableNotebookSubjects.includes(subjectId))
+        : availableNotebookSubjects,
+    );
+  }, [errorNotebookEntries]);
 
   useEffect(() => {
     if (!timerRunning) {
@@ -494,6 +549,134 @@ export default function App() {
     );
   };
 
+  const handleCreateNotebookEntry = async () => {
+    if (!errorNotebookForm.title.trim()) {
+      return;
+    }
+
+    await createErrorNotebookEntry({
+      subjectId: errorNotebookForm.subjectId || null,
+      topicId: errorNotebookForm.topicId || null,
+      title: errorNotebookForm.title,
+      promptSnapshot: errorNotebookForm.promptSnapshot,
+      userErrorReason: errorNotebookForm.userErrorReason,
+      correctReason: errorNotebookForm.correctReason,
+      avoidanceNote: errorNotebookForm.avoidanceNote,
+    });
+
+    setErrorNotebookForm({
+      subjectId: "",
+      topicId: "",
+      title: "",
+      promptSnapshot: "",
+      userErrorReason: "",
+      correctReason: "",
+      avoidanceNote: "",
+    });
+  };
+
+  const handleExportErrorNotebookCsv = () => {
+    if (errorNotebookEntries.length === 0) {
+      return;
+    }
+
+    const rows = errorNotebookEntries.map((entry) => {
+      const subjectName =
+        subjects.find((subject) => subject.id === entry.subject_id)?.name ?? "";
+      const topicTitle = topics.find((topic) => topic.id === entry.topic_id)?.title ?? "";
+
+      return [
+        subjectName,
+        topicTitle,
+        entry.title,
+        entry.entry_status,
+        entry.error_count,
+        entry.user_error_reason ?? "",
+        entry.correct_reason ?? "",
+        entry.avoidance_note ?? "",
+        entry.last_error_at,
+      ];
+    });
+
+    const csv = [
+      [
+        "Disciplina",
+        "Topico",
+        "Titulo",
+        "Status",
+        "Qtde de erros",
+        "Motivo do erro",
+        "Regra correta",
+        "Como evitar",
+        "Ultimo erro",
+      ],
+      ...rows,
+    ]
+      .map((row) =>
+        row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","),
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "studyflow-caderno-de-erros.csv";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportErrorNotebookPdf = () => {
+    if (errorNotebookEntries.length === 0) {
+      return;
+    }
+
+    const printableRows = errorNotebookEntries
+      .map((entry) => {
+        const subjectName =
+          subjects.find((subject) => subject.id === entry.subject_id)?.name ?? "Sem disciplina";
+        const topicTitle = topics.find((topic) => topic.id === entry.topic_id)?.title ?? "Sem tópico";
+
+        return `
+          <article style="border:1px solid #dbe1ea;border-radius:16px;padding:16px;margin-bottom:12px;">
+            <h3 style="margin:0 0 6px 0;font-size:16px;">${escapeHtml(entry.title)}</h3>
+            <p style="margin:0 0 8px 0;color:#475569;font-size:12px;">${escapeHtml(subjectName)} • ${escapeHtml(topicTitle)} • status ${escapeHtml(entry.entry_status)}</p>
+            <p style="margin:0 0 8px 0;"><strong>Motivo:</strong> ${escapeHtml(entry.user_error_reason ?? "-")}</p>
+            <p style="margin:0 0 8px 0;"><strong>Regra correta:</strong> ${escapeHtml(entry.correct_reason ?? "-")}</p>
+            <p style="margin:0;"><strong>Como evitar:</strong> ${escapeHtml(entry.avoidance_note ?? "-")}</p>
+          </article>
+        `;
+      })
+      .join("");
+
+    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
+
+    if (!printWindow) {
+      return;
+    }
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Caderno de erros - StudyFlow</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
+            h1 { margin-bottom: 8px; }
+            p { line-height: 1.5; }
+          </style>
+        </head>
+        <body>
+          <h1>Caderno de erros</h1>
+          <p>Exportado em ${new Date().toLocaleString("pt-BR")}</p>
+          ${printableRows}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
+
   const handleTodaySessionToggle = async (key: string) => {
     const matchingItem = todayScheduledItems.find((item) => item.id === key);
 
@@ -503,7 +686,12 @@ export default function App() {
 
     if (isPlanItemCompleted(matchingItem)) {
       await reopenPlannedSession(matchingItem.id);
-      await Promise.all([reloadSchedule(), reloadReviews()]);
+      await Promise.all([
+        reloadSchedule(),
+        reloadReviews(),
+        reloadQuestionReviews(),
+        reloadErrorNotebook(),
+      ]);
       return;
     }
 
@@ -522,6 +710,12 @@ export default function App() {
         subjectId: matchingItem.subject_id,
         topicId: effectiveTopic?.id ?? null,
         completedAt: completedSession.completedAt,
+      });
+      await syncQuestionReviewForSession({
+        subjectId: matchingItem.subject_id,
+        topicId: effectiveTopic?.id ?? null,
+        sourceSessionId: completedSession.id,
+        minimumQuestions: 5,
       });
       await syncSessionAnalytics({
         sessionDate: safeCurrentDate,
@@ -567,6 +761,24 @@ export default function App() {
         topicId: effectiveTopic?.id ?? null,
         completedAt: completedSession.completedAt,
       });
+      await syncQuestionReviewForSession({
+        subjectId: nextPlannedItem.subject_id,
+        topicId: effectiveTopic?.id ?? null,
+        sourceSessionId: completedSession.id,
+        minimumQuestions: 5,
+      });
+      if (Number(sessionForm.questionsWrong || 0) > 0) {
+        await createErrorNotebookEntry({
+          subjectId: nextPlannedItem.subject_id,
+          topicId: effectiveTopic?.id ?? null,
+          sourceSessionId: completedSession.id,
+          title: `${nextDiscipline?.name ?? "Disciplina"} • ${effectiveTopic?.title ?? "erro registrado"}`,
+          promptSnapshot: sessionForm.notes,
+          userErrorReason: sessionForm.notes,
+          correctReason: "",
+          avoidanceNote: "",
+        });
+      }
       await syncSessionAnalytics({
         sessionDate: safeCurrentDate,
         subjectId: nextPlannedItem.subject_id,
@@ -581,7 +793,7 @@ export default function App() {
     setTimerRunning(false);
     setActiveTimerItemId(null);
     setTimerSeconds((nextPlannedItem?.planned_minutes ?? 50) * 60);
-    await reloadSchedule();
+    await Promise.all([reloadSchedule(), reloadQuestionReviews(), reloadErrorNotebook()]);
   };
 
   const handleSkipPlannedItem = async () => {
@@ -874,6 +1086,79 @@ export default function App() {
         })
         .sort((left, right) => right.priorityScore - left.priorityScore)
     : [];
+  const questionReviewQueue = questionReviewTasks
+    .filter((task) => task.status === "pending")
+    .map((task) => ({
+      ...task,
+      subjectName:
+        subjects.find((subject) => subject.id === task.subject_id)?.name ??
+        "Disciplina não vinculada",
+      topicTitle: topics.find((topic) => topic.id === task.topic_id)?.title ?? null,
+    }));
+  const openErrorNotebookEntries = errorNotebookEntries.filter(
+    (entry) => entry.entry_status !== "archived",
+  );
+  const groupedErrorNotebookEntries = Object.values(
+    openErrorNotebookEntries.reduce<
+      Record<
+        string,
+        {
+          subjectId: string;
+          subjectName: string;
+          totalEntries: number;
+          favoriteCount: number;
+          entries: Array<
+            typeof openErrorNotebookEntries[number] & {
+              topicTitle: string;
+            }
+          >;
+        }
+      >
+    >((groups, entry) => {
+      const subjectId = entry.subject_id ?? "__unlinked__";
+      const subjectName =
+        subjects.find((subject) => subject.id === entry.subject_id)?.name ??
+        "Sem disciplina vinculada";
+      const topicTitle =
+        topics.find((topic) => topic.id === entry.topic_id)?.title ?? "Anotação geral";
+
+      if (!groups[subjectId]) {
+        groups[subjectId] = {
+          subjectId,
+          subjectName,
+          totalEntries: 0,
+          favoriteCount: 0,
+          entries: [],
+        };
+      }
+
+      groups[subjectId].totalEntries += 1;
+      groups[subjectId].favoriteCount += entry.favorite ? 1 : 0;
+      groups[subjectId].entries.push({
+        ...entry,
+        topicTitle,
+      });
+
+      return groups;
+    }, {}),
+  )
+    .map((group) => ({
+      ...group,
+      entries: group.entries.sort((left, right) => {
+        if (left.favorite !== right.favorite) {
+          return Number(right.favorite) - Number(left.favorite);
+        }
+
+        return right.last_error_at.localeCompare(left.last_error_at);
+      }),
+    }))
+    .sort((left, right) => {
+      if (left.favoriteCount !== right.favoriteCount) {
+        return right.favoriteCount - left.favoriteCount;
+      }
+
+      return left.subjectName.localeCompare(right.subjectName);
+    });
   const subjectAccuracyRanking = (realSubjectsForPlan.length > 0
     ? realSubjectsForPlan
         .map((subject) => {
@@ -2325,95 +2610,609 @@ export default function App() {
 
       {activeView === "revisoes" && (
         <Card className="border-0 bg-white/94 p-5 shadow-[0_16px_34px_rgba(15,23,42,0.055)]">
-          <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-bold text-slate-950">Fila de revisões</h2>
+              <h2 className="text-lg font-bold text-slate-950">Centro de revisões</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Prioridade baseada em atraso, acurácia e facilidade de recuperação.
+                Separe o que é revisão por questões, o que é erro acumulado e o que é revisão por espaçamento.
               </p>
             </div>
-            <Badge className="bg-violet-100 text-violet-700">
-              {reviewQueue.length} pendente(s)
-            </Badge>
+            <div className="flex flex-wrap gap-2">
+              <Badge className="bg-amber-100 text-amber-700">
+                {questionReviewQueue.length} questão(ões)
+              </Badge>
+              <Badge className="bg-rose-100 text-rose-700">
+                {openErrorNotebookEntries.length} erro(s)
+              </Badge>
+              <Badge className="bg-violet-100 text-violet-700">
+                {reviewQueue.length} revisão(ões)
+              </Badge>
+            </div>
           </div>
 
-          {reviewsError && (
-            <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {reviewsError}
-            </div>
-          )}
-
-          {(reviewsLoading || reviewsSaving) && (
-            <div className="mb-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-600">
-              Sincronizando revisões...
-            </div>
-          )}
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {reviewQueue.map((item) => (
-              <div
-                key={item.itemId}
-                className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5"
+          <div className="mb-4 flex flex-wrap gap-2">
+            {(
+              [
+                ["questoes", "Questões"],
+                ["caderno", "Caderno de erros"],
+                ["teoria", "Fila teórica"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveReviewView(key)}
+                className={
+                  activeReviewView === key
+                    ? buttonPrimary
+                    : buttonSecondary
+                }
               >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-semibold text-slate-900">
-                    {item.topicTitle ?? item.subjectName}
-                  </p>
-                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
-                    prioridade {item.priorityScore}
-                  </span>
-                </div>
-                <p className="mt-2 text-sm text-slate-600">
-                  {item.topicTitle ? item.subjectName : "Revisão geral da disciplina"}
-                </p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Próxima revisão: {new Date(item.nextReviewAt).toLocaleString("pt-BR")}
-                </p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Etapa programada: {item.nextStep + 1}
-                </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await completeReview(item.itemId, "good");
-                      await syncReviewAnalytics({
-                        sessionDate: safeCurrentDate,
-                        subjectId: item.subjectId ?? null,
-                        topicId: item.topicId ?? null,
-                        outcome: "good",
-                      });
-                    }}
-                    className={buttonPrimary}
-                  >
-                    Revisar agora
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await completeReview(item.itemId, "hard");
-                      await syncReviewAnalytics({
-                        sessionDate: safeCurrentDate,
-                        subjectId: item.subjectId ?? null,
-                        topicId: item.topicId ?? null,
-                        outcome: "hard",
-                      });
-                    }}
-                    className={buttonSecondary}
-                  >
-                    Manter curto
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => removeReview(item.itemId)}
-                  className={`mt-2 w-full ${buttonDanger}`}
-                >
-                  Excluir revisão
-                </button>
-              </div>
+                {label}
+              </button>
             ))}
           </div>
+
+          {activeReviewView === "questoes" && (
+            <div className="space-y-4">
+              {(questionReviewError || (questionReviewLoading || questionReviewSaving)) && (
+                <div
+                  className={`rounded-2xl px-4 py-3 text-sm ${
+                    questionReviewError
+                      ? "border border-rose-200 bg-rose-50 text-rose-700"
+                      : "bg-slate-100 font-medium text-slate-600"
+                  }`}
+                >
+                  {questionReviewError || "Sincronizando revisões por questões..."}
+                </div>
+              )}
+
+              <div className="grid gap-3 rounded-3xl border border-sky-100 bg-sky-50/80 p-4 text-sm text-slate-700 md:grid-cols-3">
+                <div>
+                  <p className="font-black text-slate-950">Regra operacional</p>
+                  <p className="mt-1">Responder pelo menos 5 questões dos assuntos já estudados.</p>
+                </div>
+                <div>
+                  <p className="font-black text-slate-950">Como funciona</p>
+                  <p className="mt-1">A fila acumula sem prazo para você resolver no dia reservado para questões.</p>
+                </div>
+                <div>
+                  <p className="font-black text-slate-950">Critério</p>
+                  <p className="mt-1">Baixa taxa de acerto mantém a disciplina viva na fila.</p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {questionReviewQueue.map((task) => {
+                  const draft = questionReviewDrafts[task.id] ?? { answered: "", correct: "" };
+
+                  return (
+                    <div
+                      key={task.id}
+                      className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-semibold text-slate-900">
+                          {task.topicTitle ?? task.subjectName}
+                        </p>
+                        <Badge>{task.minimum_questions} questões</Badge>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{task.subjectName}</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Fila contínua de questões, sem vencimento.
+                      </p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                          Feitas
+                          <input
+                            type="number"
+                            min={task.minimum_questions}
+                            value={draft.answered}
+                            onChange={(event) =>
+                              setQuestionReviewDrafts((state) => ({
+                                ...state,
+                                [task.id]: {
+                                  ...state[task.id],
+                                  answered: event.target.value,
+                                  correct: state[task.id]?.correct ?? "",
+                                },
+                              }))
+                            }
+                            className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
+                            placeholder={String(task.minimum_questions)}
+                          />
+                        </label>
+                        <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                          Acertos
+                          <input
+                            type="number"
+                            min={0}
+                            value={draft.correct}
+                            onChange={(event) =>
+                              setQuestionReviewDrafts((state) => ({
+                                ...state,
+                                [task.id]: {
+                                  ...state[task.id],
+                                  answered: state[task.id]?.answered ?? "",
+                                  correct: event.target.value,
+                                },
+                              }))
+                            }
+                            className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
+                            placeholder="0"
+                          />
+                        </label>
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            completeQuestionReview({
+                              taskId: task.id,
+                              questionsAnswered: Number(draft.answered || task.minimum_questions),
+                              questionsCorrect: Number(draft.correct || 0),
+                            })
+                          }
+                          className={buttonPrimary}
+                        >
+                          Concluir
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeQuestionReviewTask(task.id)}
+                          className={buttonDanger}
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {questionReviewQueue.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                  Nenhuma revisão por questões pendente.
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeReviewView === "caderno" && (
+            <div className="space-y-4">
+              {(errorNotebookError || (errorNotebookLoading || errorNotebookSaving)) && (
+                <div
+                  className={`rounded-2xl px-4 py-3 text-sm ${
+                    errorNotebookError
+                      ? "border border-rose-200 bg-rose-50 text-rose-700"
+                      : "bg-slate-100 font-medium text-slate-600"
+                  }`}
+                >
+                  {errorNotebookError || "Sincronizando caderno de erros..."}
+                </div>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <button type="button" onClick={handleExportErrorNotebookCsv} className={buttonSecondary}>
+                  <Download className="mr-1 h-4 w-4" />
+                  CSV
+                </button>
+                <button type="button" onClick={handleExportErrorNotebookPdf} className={buttonSecondary}>
+                  <Download className="mr-1 h-4 w-4" />
+                  PDF
+                </button>
+              </div>
+
+              <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/60">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black text-slate-950">Caderno de revisão</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Organize erros, regras e pegadinhas por disciplina para revisar como um material próprio.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                    <span className="rounded-full bg-slate-100 px-3 py-1">
+                      {groupedErrorNotebookEntries.length} disciplina(s)
+                    </span>
+                    <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">
+                      {openErrorNotebookEntries.filter((entry) => entry.favorite).length} destaque(s)
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <label className="text-sm text-slate-600">
+                    Disciplina
+                    <select
+                      value={errorNotebookForm.subjectId}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({
+                          ...state,
+                          subjectId: event.target.value,
+                          topicId: "",
+                        }))
+                      }
+                      className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
+                    >
+                      <option value="">Selecione</option>
+                      {subjects.map((subject) => (
+                        <option key={subject.id} value={subject.id}>
+                          {subject.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Tópico
+                    <select
+                      value={errorNotebookForm.topicId}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({ ...state, topicId: event.target.value }))
+                      }
+                      className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
+                    >
+                      <option value="">Selecione</option>
+                      {topics
+                        .filter((topic) => topic.subject_id === errorNotebookForm.subjectId)
+                        .map((topic) => (
+                          <option key={topic.id} value={topic.id}>
+                            {topic.title}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-600 md:col-span-2">
+                    Título curto
+                    <input
+                      type="text"
+                      value={errorNotebookForm.title}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({ ...state, title: event.target.value }))
+                      }
+                      className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
+                      placeholder="Ex.: confundi competência privativa com concorrente"
+                    />
+                  </label>
+                  <label className="text-sm text-slate-600 md:col-span-2">
+                    Questão / contexto
+                    <textarea
+                      value={errorNotebookForm.promptSnapshot}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({ ...state, promptSnapshot: event.target.value }))
+                      }
+                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
+                      placeholder="Resumo da questão, pegadinha ou situação"
+                    />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Motivo do erro
+                    <textarea
+                      value={errorNotebookForm.userErrorReason}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({ ...state, userErrorReason: event.target.value }))
+                      }
+                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
+                    />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Regra correta
+                    <textarea
+                      value={errorNotebookForm.correctReason}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({ ...state, correctReason: event.target.value }))
+                      }
+                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
+                    />
+                  </label>
+                  <label className="text-sm text-slate-600 md:col-span-2">
+                    Como evitar
+                    <textarea
+                      value={errorNotebookForm.avoidanceNote}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({ ...state, avoidanceNote: event.target.value }))
+                      }
+                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
+                    />
+                  </label>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <button type="button" onClick={handleCreateNotebookEntry} className={buttonPrimary}>
+                    Salvar anotação
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {groupedErrorNotebookEntries.map((group) => {
+                  const isExpanded = expandedNotebookSubjectIds.includes(group.subjectId);
+
+                  return (
+                    <div
+                      key={group.subjectId}
+                      className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm shadow-slate-200/60"
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedNotebookSubjectIds((current) =>
+                            current.includes(group.subjectId)
+                              ? current.filter((subjectId) => subjectId !== group.subjectId)
+                              : [...current, group.subjectId],
+                          )
+                        }
+                        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition hover:bg-slate-50"
+                      >
+                        <div>
+                          <p className="text-sm font-black text-slate-950">{group.subjectName}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {group.totalEntries} anotação(ões) • {group.favoriteCount} destaque(s)
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">
+                            {group.entries.filter((entry) => entry.entry_status === "open").length} abertas
+                          </span>
+                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </div>
+                      </button>
+
+                      {isExpanded && (
+                        <div className="border-t border-slate-200 bg-slate-50/70 p-4">
+                          <div className="space-y-3">
+                            {group.entries.map((entry) => (
+                              <article
+                                key={entry.id}
+                                className="rounded-2xl border border-slate-200 bg-white p-4"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="font-semibold text-slate-950">{entry.title}</p>
+                                      <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                                        {entry.topicTitle}
+                                      </span>
+                                    </div>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      Erros no tema: {entry.error_count} • Último registro em{" "}
+                                      {format(parseISO(entry.last_error_at), "dd/MM")}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      updateErrorNotebookEntry({
+                                        entryId: entry.id,
+                                        favorite: !entry.favorite,
+                                      })
+                                    }
+                                    className={`rounded-full p-2 transition ${
+                                      entry.favorite
+                                        ? "bg-amber-50 text-amber-500"
+                                        : "bg-slate-100 text-slate-400 hover:text-amber-500"
+                                    }`}
+                                    title="Marcar como destaque"
+                                  >
+                                    <Star className={`h-4 w-4 ${entry.favorite ? "fill-current" : ""}`} />
+                                  </button>
+                                </div>
+
+                                {entry.prompt_snapshot && (
+                                  <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                    <strong className="text-slate-800">Contexto:</strong> {entry.prompt_snapshot}
+                                  </div>
+                                )}
+
+                                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                                  <div className="rounded-2xl bg-rose-50 px-3 py-3">
+                                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-rose-700">
+                                      Onde errei
+                                    </p>
+                                    <p className="mt-1 text-sm text-rose-900">
+                                      {entry.user_error_reason || "-"}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-2xl bg-emerald-50 px-3 py-3">
+                                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-700">
+                                      Regra correta
+                                    </p>
+                                    <p className="mt-1 text-sm text-emerald-900">
+                                      {entry.correct_reason || "-"}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-2xl bg-amber-50 px-3 py-3">
+                                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-amber-700">
+                                      Como evitar
+                                    </p>
+                                    <p className="mt-1 text-sm text-amber-900">
+                                      {entry.avoidance_note || "-"}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                                  <select
+                                    value={entry.entry_status}
+                                    onChange={(event) =>
+                                      updateErrorNotebookEntry({
+                                        entryId: entry.id,
+                                        entryStatus: event.target.value as
+                                          | "open"
+                                          | "reviewing"
+                                          | "mastered"
+                                          | "archived",
+                                      })
+                                    }
+                                    className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
+                                  >
+                                    <option value="open">Aberto</option>
+                                    <option value="reviewing">Revisando</option>
+                                    <option value="mastered">Dominado</option>
+                                    <option value="archived">Arquivado</option>
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeErrorNotebookEntry(entry.id)}
+                                    className={buttonDanger}
+                                  >
+                                    Excluir
+                                  </button>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {openErrorNotebookEntries.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                  Nenhuma anotação no caderno de erros ainda.
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeReviewView === "teoria" && (
+            <div className="space-y-4">
+              {reviewsError && (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {reviewsError}
+                </div>
+              )}
+
+              {(reviewsLoading || reviewsSaving) && (
+                <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-600">
+                  Sincronizando revisões...
+                </div>
+              )}
+
+              <div className="grid gap-3 rounded-3xl border border-sky-100 bg-sky-50/80 p-4 text-sm text-slate-700 md:grid-cols-3">
+                <div>
+                  <p className="font-black text-slate-950">Modelo usado</p>
+                  <p className="mt-1">
+                    Fila inteligente: 24h, 7d, 30d, 60d e 90d, com exceções para falhas.
+                  </p>
+                </div>
+                <div>
+                  <p className="font-black text-slate-950">Como revisar</p>
+                  <p className="mt-1">
+                    Primeiro tente lembrar sem olhar. Depois confira, corrija e registre o resultado.
+                  </p>
+                </div>
+                <div>
+                  <p className="font-black text-slate-950">Ajuste automático</p>
+                  <p className="mt-1">
+                    Falha encurta para 1 dia; dificuldade vai para 3 dias; acerto espaça mais.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {reviewQueue.map((item) => (
+                  <div
+                    key={item.itemId}
+                    className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-semibold text-slate-900">
+                        {item.topicTitle ?? item.subjectName}
+                      </p>
+                      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                        prioridade {item.priorityScore}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">
+                      {item.topicTitle ? item.subjectName : "Revisão geral da disciplina"}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Próxima revisão: {new Date(item.nextReviewAt).toLocaleString("pt-BR")}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Etapa programada: {item.nextStep + 1}
+                    </p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await completeReview(item.itemId, "fail");
+                          await syncReviewAnalytics({
+                            sessionDate: safeCurrentDate,
+                            subjectId: item.subjectId ?? null,
+                            topicId: item.topicId ?? null,
+                            outcome: "fail",
+                          });
+                        }}
+                        className={buttonDanger}
+                      >
+                        Falhei
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await completeReview(item.itemId, "hard");
+                          await syncReviewAnalytics({
+                            sessionDate: safeCurrentDate,
+                            subjectId: item.subjectId ?? null,
+                            topicId: item.topicId ?? null,
+                            outcome: "hard",
+                          });
+                        }}
+                        className={buttonSecondary}
+                      >
+                        Difícil
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await completeReview(item.itemId, "good");
+                          await syncReviewAnalytics({
+                            sessionDate: safeCurrentDate,
+                            subjectId: item.subjectId ?? null,
+                            topicId: item.topicId ?? null,
+                            outcome: "good",
+                          });
+                        }}
+                        className={buttonPrimary}
+                      >
+                        Bom
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await completeReview(item.itemId, "easy");
+                          await syncReviewAnalytics({
+                            sessionDate: safeCurrentDate,
+                            subjectId: item.subjectId ?? null,
+                            topicId: item.topicId ?? null,
+                            outcome: "easy",
+                          });
+                        }}
+                        className={buttonSecondary}
+                      >
+                        Fácil
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeReview(item.itemId)}
+                      className={`mt-2 w-full ${buttonDanger}`}
+                    >
+                      Excluir revisão
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {reviewQueue.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                  Nenhuma revisão teórica pendente.
+                </div>
+              )}
+            </div>
+          )}
         </Card>
       )}
 
@@ -2904,6 +3703,15 @@ function mapAuthError(message: string) {
   }
 
   return message;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function translateTopicStatus(

@@ -214,6 +214,20 @@ export function useStudyflowSessions(
         const linkedSessionIds = (linkedSessions ?? []).map((sessionItem) => sessionItem.id);
 
         if (linkedSessionIds.length > 0) {
+          const { error: questionReviewError } = await client
+            .from("question_review_tasks")
+            .delete()
+            .in("source_session_id", linkedSessionIds);
+
+          if (questionReviewError) throw questionReviewError;
+
+          const { error: errorNotebookError } = await client
+            .from("error_notebook_entries")
+            .delete()
+            .in("source_session_id", linkedSessionIds);
+
+          if (errorNotebookError) throw errorNotebookError;
+
           const { error: reviewError } = await client
             .from("review_items")
             .delete()

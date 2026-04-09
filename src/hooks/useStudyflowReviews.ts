@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getSupabaseClient, isSupabaseConfigured } from "../lib/supabase";
 
 interface ReviewPresetStep {
+  offset_minutes?: number;
   offset_hours?: number;
   offset_days?: number;
 }
@@ -11,6 +12,14 @@ interface ReviewPresetRow {
   code: string;
   steps: ReviewPresetStep[];
 }
+
+const defaultEvidencePresetSteps: ReviewPresetStep[] = [
+  { offset_hours: 24 },
+  { offset_days: 7 },
+  { offset_days: 30 },
+  { offset_days: 60 },
+  { offset_days: 90 },
+];
 
 export interface StudyflowReviewItem {
   id: string;
@@ -39,6 +48,10 @@ interface SyncReviewInput {
 function buildNextReviewDate(baseIso: string, step?: ReviewPresetStep) {
   const baseDate = new Date(baseIso);
 
+  if (step?.offset_minutes) {
+    baseDate.setMinutes(baseDate.getMinutes() + step.offset_minutes);
+  }
+
   if (step?.offset_hours) {
     baseDate.setHours(baseDate.getHours() + step.offset_hours);
   }
@@ -53,7 +66,47 @@ function buildNextReviewDate(baseIso: string, step?: ReviewPresetStep) {
 function getInitialIntervalDays(step?: ReviewPresetStep) {
   if (step?.offset_days) return step.offset_days;
   if (step?.offset_hours) return Math.max(1, Math.round(step.offset_hours / 24));
+  if (step?.offset_minutes) return 1;
   return 1;
+}
+
+function getEvidenceBasedNextInterval(
+  currentItem: StudyflowReviewItem,
+  reviewOutcome: "fail" | "hard" | "good" | "easy",
+) {
+  const currentInterval = Math.max(1, currentItem.interval_days || 1);
+  const nextStreak =
+    reviewOutcome === "fail" ? 0 : Math.max(0, currentItem.success_streak) + 1;
+
+  if (reviewOutcome === "fail") {
+    return 1;
+  }
+
+  if (reviewOutcome === "hard") {
+    return nextStreak <= 1 ? 3 : Math.max(3, Math.round(currentInterval * 1.2));
+  }
+
+  if (reviewOutcome === "easy") {
+    if (nextStreak <= 1) return 7;
+    if (nextStreak === 2) return 30;
+    if (nextStreak === 3) return 60;
+    return Math.min(120, Math.round(currentInterval * Math.max(1.8, currentItem.ease_factor * 0.7)));
+  }
+
+  if (nextStreak <= 1) return 7;
+  if (nextStreak === 2) return 30;
+  if (nextStreak === 3) return 60;
+  return Math.min(120, Math.round(currentInterval * Math.max(1.5, currentItem.ease_factor * 0.65)));
+}
+
+function getNextEaseFactor(
+  currentEaseFactor: number,
+  reviewOutcome: "fail" | "hard" | "good" | "easy",
+) {
+  if (reviewOutcome === "fail") return Math.max(1.3, currentEaseFactor - 0.25);
+  if (reviewOutcome === "hard") return Math.max(1.4, currentEaseFactor - 0.1);
+  if (reviewOutcome === "easy") return Math.min(3.2, currentEaseFactor + 0.15);
+  return currentEaseFactor;
 }
 
 export function useStudyflowReviews(
@@ -121,7 +174,8 @@ export function useStudyflowReviews(
 
         if (presetError) throw presetError;
 
-        const firstStep = (preset as ReviewPresetRow | null)?.steps?.[0];
+        const firstStep =
+          (preset as ReviewPresetRow | null)?.steps?.[0] ?? defaultEvidencePresetSteps[0];
         const nextReviewAt = buildNextReviewDate(payload.completedAt, firstStep);
         const intervalDays = getInitialIntervalDays(firstStep);
 
@@ -196,14 +250,7 @@ export function useStudyflowReviews(
         }
 
         const nowIso = new Date().toISOString();
-        const nextInterval =
-          reviewOutcome === "fail"
-            ? 1
-            : reviewOutcome === "hard"
-              ? Math.max(1, currentItem.interval_days)
-              : reviewOutcome === "easy"
-                ? currentItem.interval_days * 2
-                : Math.max(2, Math.round(currentItem.interval_days * 1.5));
+        const nextInterval = getEvidenceBasedNextInterval(currentItem, reviewOutcome);
         const nextReviewAt = buildNextReviewDate(nowIso, { offset_days: nextInterval });
 
         const { error: logError } = await client.from("review_logs").insert({
@@ -235,12 +282,7 @@ export function useStudyflowReviews(
                 ? currentItem.lapse_count + 1
                 : currentItem.lapse_count,
             priority_score: reviewOutcome === "fail" ? 2 : 1,
-            ease_factor:
-              reviewOutcome === "fail"
-                ? Math.max(1.3, currentItem.ease_factor - 0.2)
-                : reviewOutcome === "easy"
-                  ? currentItem.ease_factor + 0.15
-                  : currentItem.ease_factor,
+            ease_factor: getNextEaseFactor(currentItem.ease_factor, reviewOutcome),
           })
           .eq("id", reviewItemId);
 

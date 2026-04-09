@@ -20,6 +20,8 @@ drop table if exists public.essay_themes cascade;
 drop table if exists public.simulation_results cascade;
 drop table if exists public.simulations cascade;
 drop table if exists public.study_notes cascade;
+drop table if exists public.error_notebook_entries cascade;
+drop table if exists public.question_review_tasks cascade;
 drop table if exists public.review_logs cascade;
 drop table if exists public.review_items cascade;
 drop table if exists public.question_attempts cascade;
@@ -47,6 +49,8 @@ drop table if exists public.review_logs cascade;
 drop table if exists public.review_items cascade;
 drop table if exists public.review_presets cascade;
 drop table if exists public.study_sessions cascade;
+drop table if exists public.error_notebook_entries cascade;
+drop table if exists public.question_review_tasks cascade;
 drop table if exists public.daily_plan_items cascade;
 drop table if exists public.weekly_plans cascade;
 drop table if exists public.calendar_events cascade;
@@ -143,7 +147,7 @@ create table public.user_preferences (
   user_id uuid primary key references public.profiles (id) on delete cascade,
   theme text not null default 'system' check (theme in ('light', 'dark', 'system')),
   locale text not null default 'pt-BR',
-  default_review_preset_code text not null default 'classic_24_7_30',
+  default_review_preset_code text not null default 'evidence_active_recall',
   week_starts_on integer not null default 1 check (week_starts_on between 0 and 6),
   mobile_notifications_enabled boolean not null default true,
   email_notifications_enabled boolean not null default true,
@@ -172,6 +176,30 @@ create table public.plan_templates (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+insert into public.plan_templates (title, description, study_type, template_payload)
+values
+  (
+    'Concurso 90 dias',
+    'Template com foco em revisão por fila, exercícios e carga semanal progressiva.',
+    'concurso',
+    jsonb_build_object(
+      'weekly_minutes', 1500,
+      'block_minutes', 50,
+      'subjects_per_day', 4
+    )
+  ),
+  (
+    'ENEM 180 dias',
+    'Template com equilíbrio entre teoria, exercícios, redação e revisões por prioridade.',
+    'enem',
+    jsonb_build_object(
+      'weekly_minutes', 1200,
+      'block_minutes', 45,
+      'subjects_per_day', 3
+    )
+  )
+on conflict do nothing;
+
 create table public.study_plans (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces (id) on delete cascade,
@@ -186,7 +214,7 @@ create table public.study_plans (
   daily_available_minutes integer not null default 240,
   preferred_block_minutes integer not null default 50,
   subjects_per_day integer not null default 4,
-  review_method_code text not null default 'classic_24_7_30',
+  review_method_code text not null default 'evidence_active_recall',
   allow_auto_rebalance boolean not null default true,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
@@ -262,6 +290,29 @@ create table public.subject_catalog (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+insert into public.subject_catalog (slug, name, category)
+values
+  ('lingua-portuguesa', 'Língua Portuguesa', 'Linguagens'),
+  ('matematica', 'Matemática', 'Exatas'),
+  ('nocoes-informatica', 'Noções de Informática', 'Tecnologia'),
+  ('direito-constitucional', 'Direito Constitucional', 'Direito'),
+  ('direito-administrativo', 'Direito Administrativo', 'Direito'),
+  ('direito-penal', 'Direito Penal', 'Direito'),
+  ('direito-processual-penal', 'Direito Processual Penal', 'Direito'),
+  ('direito-penal-militar', 'Direito Penal Militar', 'Direito'),
+  ('direito-processual-penal-militar', 'Direito Processual Penal Militar', 'Direito'),
+  ('direitos-humanos', 'Direitos Humanos', 'Direito'),
+  ('legislacao-especial', 'Legislação Especial', 'Direito'),
+  ('conhecimentos-alagoas', 'Conhecimentos do Estado de Alagoas', 'Conhecimentos Locais'),
+  ('atualidades', 'Atualidades', 'Conhecimentos Gerais'),
+  ('lingua-inglesa', 'Língua Inglesa', 'Linguagens'),
+  ('filosofia', 'Filosofia', 'Ciências Humanas'),
+  ('sociologia', 'Sociologia', 'Ciências Humanas')
+on conflict (slug) do update
+set
+  name = excluded.name,
+  category = excluded.category;
 
 create table public.subjects (
   id uuid primary key default gen_random_uuid(),
@@ -381,6 +432,27 @@ create table public.review_presets (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+insert into public.review_presets (code, name, description, steps, is_system)
+values
+  (
+    'evidence_active_recall',
+    'Fila inteligente de revisão',
+    'Modelo enxuto para muitas disciplinas: prática distribuída e recuperação ativa em 24h, 7d, 30d, 60d e 90d, com encurtamento automático quando houver falha ou dificuldade.',
+    jsonb_build_array(
+      jsonb_build_object('offset_hours', 24, 'goal', 'first_spacing'),
+      jsonb_build_object('offset_days', 7, 'goal', 'weekly_retrieval'),
+      jsonb_build_object('offset_days', 30, 'goal', 'monthly_retrieval'),
+      jsonb_build_object('offset_days', 60, 'goal', 'maintenance'),
+      jsonb_build_object('offset_days', 90, 'goal', 'long_term_retention')
+    ),
+    true
+  )
+on conflict (code) do update
+set
+  name = excluded.name,
+  description = excluded.description,
+  steps = excluded.steps;
+
 create table public.review_items (
   id uuid primary key default gen_random_uuid(),
   study_plan_id uuid not null references public.study_plans (id) on delete cascade,
@@ -412,6 +484,49 @@ create table public.review_logs (
   questions_correct integer not null default 0,
   notes text,
   created_at timestamptz not null default timezone('utc', now())
+);
+
+create table public.question_review_tasks (
+  id uuid primary key default gen_random_uuid(),
+  study_plan_id uuid not null references public.study_plans (id) on delete cascade,
+  subject_id uuid references public.subjects (id) on delete set null,
+  topic_id uuid references public.topics (id) on delete set null,
+  source_session_id uuid references public.study_sessions (id) on delete set null,
+  status text not null default 'pending' check (status in ('pending', 'completed', 'skipped', 'archived')),
+  minimum_questions integer not null default 5 check (minimum_questions > 0),
+  questions_answered integer not null default 0 check (questions_answered >= 0),
+  questions_correct integer not null default 0 check (questions_correct >= 0),
+  questions_wrong integer not null default 0 check (questions_wrong >= 0),
+  due_at timestamptz,
+  completed_at timestamptz,
+  last_practiced_at timestamptz,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create table public.error_notebook_entries (
+  id uuid primary key default gen_random_uuid(),
+  study_plan_id uuid not null references public.study_plans (id) on delete cascade,
+  subject_id uuid references public.subjects (id) on delete set null,
+  topic_id uuid references public.topics (id) on delete set null,
+  source_session_id uuid references public.study_sessions (id) on delete set null,
+  source_question_review_task_id uuid references public.question_review_tasks (id) on delete set null,
+  title text not null,
+  prompt_snapshot text,
+  user_error_reason text,
+  correct_reason text,
+  avoidance_note text,
+  entry_status text not null default 'open' check (entry_status in ('open', 'reviewing', 'mastered', 'archived')),
+  error_count integer not null default 1 check (error_count > 0),
+  favorite boolean not null default false,
+  tags jsonb not null default '[]'::jsonb,
+  last_error_at timestamptz not null default timezone('utc', now()),
+  last_reviewed_at timestamptz,
+  next_review_at timestamptz,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
 );
 
 create table public.difficulty_maps (
@@ -512,6 +627,8 @@ create index idx_weekly_plans_plan on public.weekly_plans (study_plan_id, week_s
 create index idx_daily_plan_items_plan_date on public.daily_plan_items (study_plan_id, study_date, status);
 create index idx_study_sessions_plan_date on public.study_sessions (study_plan_id, session_date desc);
 create index idx_review_items_plan_next on public.review_items (study_plan_id, next_review_at, review_status);
+create index idx_question_review_tasks_plan_due on public.question_review_tasks (study_plan_id, due_at, status);
+create index idx_error_notebook_entries_plan_status on public.error_notebook_entries (study_plan_id, entry_status, last_error_at desc);
 create index idx_performance_snapshots_plan_date on public.performance_snapshots (study_plan_id, snapshot_date desc);
 create index idx_notifications_user_status on public.notifications (user_id, notification_status, scheduled_at);
 
@@ -530,6 +647,8 @@ create trigger set_daily_plan_items_updated_at before update on public.daily_pla
 create trigger set_study_sessions_updated_at before update on public.study_sessions for each row execute function public.set_updated_at();
 create trigger set_review_presets_updated_at before update on public.review_presets for each row execute function public.set_updated_at();
 create trigger set_review_items_updated_at before update on public.review_items for each row execute function public.set_updated_at();
+create trigger set_question_review_tasks_updated_at before update on public.question_review_tasks for each row execute function public.set_updated_at();
+create trigger set_error_notebook_entries_updated_at before update on public.error_notebook_entries for each row execute function public.set_updated_at();
 create trigger set_difficulty_maps_updated_at before update on public.difficulty_maps for each row execute function public.set_updated_at();
 create trigger set_goals_updated_at before update on public.goals for each row execute function public.set_updated_at();
 create trigger set_calendar_events_updated_at before update on public.calendar_events for each row execute function public.set_updated_at();
@@ -556,6 +675,8 @@ alter table public.daily_plan_items enable row level security;
 alter table public.study_sessions enable row level security;
 alter table public.review_items enable row level security;
 alter table public.review_logs enable row level security;
+alter table public.question_review_tasks enable row level security;
+alter table public.error_notebook_entries enable row level security;
 alter table public.difficulty_maps enable row level security;
 alter table public.performance_snapshots enable row level security;
 alter table public.goals enable row level security;
@@ -579,6 +700,8 @@ create policy daily_plan_items_own_all on public.daily_plan_items for all using 
 create policy study_sessions_own_all on public.study_sessions for all using (public.user_owns_plan(study_plan_id)) with check (public.user_owns_plan(study_plan_id));
 create policy review_items_own_all on public.review_items for all using (public.user_owns_plan(study_plan_id)) with check (public.user_owns_plan(study_plan_id));
 create policy review_logs_own_all on public.review_logs for all using (exists (select 1 from public.review_items ri join public.study_plans sp on sp.id = ri.study_plan_id join public.workspaces w on w.id = sp.workspace_id where ri.id = review_logs.review_item_id and w.user_id = auth.uid())) with check (exists (select 1 from public.review_items ri join public.study_plans sp on sp.id = ri.study_plan_id join public.workspaces w on w.id = sp.workspace_id where ri.id = review_logs.review_item_id and w.user_id = auth.uid()));
+create policy question_review_tasks_own_all on public.question_review_tasks for all using (public.user_owns_plan(study_plan_id)) with check (public.user_owns_plan(study_plan_id));
+create policy error_notebook_entries_own_all on public.error_notebook_entries for all using (public.user_owns_plan(study_plan_id)) with check (public.user_owns_plan(study_plan_id));
 create policy difficulty_maps_own_all on public.difficulty_maps for all using (public.user_owns_plan(study_plan_id)) with check (public.user_owns_plan(study_plan_id));
 create policy performance_snapshots_own_all on public.performance_snapshots for all using (public.user_owns_plan(study_plan_id)) with check (public.user_owns_plan(study_plan_id));
 create policy goals_own_all on public.goals for all using (public.user_owns_plan(study_plan_id)) with check (public.user_owns_plan(study_plan_id));
