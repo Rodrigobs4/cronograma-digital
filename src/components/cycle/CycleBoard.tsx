@@ -13,29 +13,34 @@ export function CycleBoard({
   disciplines,
 }: CycleBoardProps) {
   return (
-    <Card className="mt-6">
+    <Card className="overflow-hidden border-0 bg-white/92">
       <div className="mb-4">
-        <h2 className="text-xl font-bold text-slate-900">Ciclos do plano</h2>
+        <h2 className="text-lg font-bold text-slate-950">Ciclos do plano</h2>
         <p className="mt-1 text-sm text-slate-500">
           Visualize a rotação A–F e o que cai em cada dia do ciclo.
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {cycleDays.map((day: CycleDay) => (
           <div
             key={day.id}
-            className={`rounded-2xl border p-4 ${
+            className={`rounded-2xl border p-3.5 ${
               day.id === currentCycleDay
-                ? "border-blue-400 bg-blue-50"
-                : "border-slate-200 bg-slate-50"
+                ? "border-sky-300 bg-[linear-gradient(180deg,#eff6ff,#dff7ff)]"
+                : "border-slate-200 bg-white"
             }`}
           >
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-lg font-bold">Dia {day.id}</h3>
+              <div>
+                <h3 className="text-base font-bold text-slate-950">Dia {day.id}</h3>
+                <p className="text-xs uppercase tracking-[0.14em] text-slate-400">
+                  {day.sessions.length} bloco(s)
+                </p>
+              </div>
 
               {day.id === currentCycleDay && (
-                <span className="rounded-full bg-blue-600 px-2 py-1 text-xs font-semibold text-white">
+                <span className="rounded-full bg-cyan-600 px-2 py-1 text-xs font-semibold text-white">
                   Hoje
                 </span>
               )}

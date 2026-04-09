@@ -68,7 +68,9 @@ export interface DisciplineProgress {
 
 export interface PlannerSettings {
   userName: string;
+  workspaceName: string;
   examTitle: string;
+  studyType: "concurso" | "vestibular" | "enem" | "faculdade" | "livre";
   examDate: string;
   planStartDate: string;
   dailyStudyHours: number;

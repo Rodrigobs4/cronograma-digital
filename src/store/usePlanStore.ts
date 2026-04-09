@@ -16,7 +16,9 @@ function createDefaultPlannerSettings() {
 
   return {
     userName: "Seu perfil",
+    workspaceName: "Workspace principal",
     examTitle: "PMAL 2026",
+    studyType: "concurso" as const,
     examDate: "2026-07-19",
     planStartDate: today,
     dailyStudyHours: 4,

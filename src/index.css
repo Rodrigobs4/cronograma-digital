@@ -1,9 +1,12 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap");
 @import "tailwindcss";
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  color: #0f172a;
-  background: #f8fafc;
+  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  color: #111827;
+  background: #f4f1ea;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
 }
 
 * {
@@ -14,10 +17,24 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f8fafc;
-  color: #0f172a;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(14, 165, 233, 0.14), transparent 30rem),
+    radial-gradient(circle at 88% 4%, rgba(34, 197, 94, 0.12), transparent 28rem),
+    linear-gradient(180deg, #f8f5ef 0%, #f2f6f5 48%, #eef2f7 100%);
+  color: #111827;
 }
 
 button {
   font: inherit;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Sora", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.035em;
+}
+
+::selection {
+  background: rgba(14, 165, 233, 0.18);
 }
