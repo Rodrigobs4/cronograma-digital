@@ -9,10 +9,15 @@ export interface StudyflowErrorNotebookEntry {
   source_session_id: string | null;
   source_question_review_task_id: string | null;
   title: string;
+  entry_type: "error" | "rule" | "insight" | "trap" | "commentary";
+  source_kind: "question" | "class" | "teacher_comment" | "book" | "manual" | "mock_exam";
+  source_label: string | null;
   prompt_snapshot: string | null;
   user_error_reason: string | null;
   correct_reason: string | null;
   avoidance_note: string | null;
+  teacher_comment: string | null;
+  review_note: string | null;
   entry_status: "open" | "reviewing" | "mastered" | "archived";
   error_count: number;
   favorite: boolean;
@@ -28,10 +33,15 @@ interface CreateErrorNotebookEntryInput {
   sourceSessionId?: string | null;
   sourceQuestionReviewTaskId?: string | null;
   title: string;
+  entryType?: StudyflowErrorNotebookEntry["entry_type"];
+  sourceKind?: StudyflowErrorNotebookEntry["source_kind"];
+  sourceLabel?: string;
   promptSnapshot?: string;
   userErrorReason?: string;
   correctReason?: string;
   avoidanceNote?: string;
+  teacherComment?: string;
+  reviewNote?: string;
   favorite?: boolean;
   tags?: string[];
   nextReviewAt?: string | null;
@@ -44,6 +54,9 @@ interface UpdateErrorNotebookEntryInput {
   userErrorReason?: string;
   correctReason?: string;
   avoidanceNote?: string;
+  teacherComment?: string;
+  reviewNote?: string;
+  sourceLabel?: string;
   nextReviewAt?: string | null;
 }
 
@@ -84,7 +97,7 @@ export function useStudyflowErrorNotebook(planId: string | undefined) {
       const { data, error: loadError } = await client
         .from("error_notebook_entries")
         .select(
-          "id, study_plan_id, subject_id, topic_id, source_session_id, source_question_review_task_id, title, prompt_snapshot, user_error_reason, correct_reason, avoidance_note, entry_status, error_count, favorite, tags, last_error_at, last_reviewed_at, next_review_at",
+          "id, study_plan_id, subject_id, topic_id, source_session_id, source_question_review_task_id, title, entry_type, source_kind, source_label, prompt_snapshot, user_error_reason, correct_reason, avoidance_note, teacher_comment, review_note, entry_status, error_count, favorite, tags, last_error_at, last_reviewed_at, next_review_at",
         )
         .eq("study_plan_id", planId)
         .order("favorite", { ascending: false })
@@ -123,10 +136,15 @@ export function useStudyflowErrorNotebook(planId: string | undefined) {
           source_session_id: payload.sourceSessionId ?? null,
           source_question_review_task_id: payload.sourceQuestionReviewTaskId ?? null,
           title: payload.title.trim(),
+          entry_type: payload.entryType ?? "error",
+          source_kind: payload.sourceKind ?? "manual",
+          source_label: payload.sourceLabel?.trim() || null,
           prompt_snapshot: payload.promptSnapshot?.trim() || null,
           user_error_reason: payload.userErrorReason?.trim() || null,
           correct_reason: payload.correctReason?.trim() || null,
           avoidance_note: payload.avoidanceNote?.trim() || null,
+          teacher_comment: payload.teacherComment?.trim() || null,
+          review_note: payload.reviewNote?.trim() || null,
           favorite: payload.favorite ?? false,
           tags: payload.tags ?? [],
           last_error_at: nowIso,
@@ -167,6 +185,15 @@ export function useStudyflowErrorNotebook(planId: string | undefined) {
         }
         if (payload.avoidanceNote != null) {
           patch.avoidance_note = payload.avoidanceNote.trim() || null;
+        }
+        if (payload.teacherComment != null) {
+          patch.teacher_comment = payload.teacherComment.trim() || null;
+        }
+        if (payload.reviewNote != null) {
+          patch.review_note = payload.reviewNote.trim() || null;
+        }
+        if (payload.sourceLabel != null) {
+          patch.source_label = payload.sourceLabel.trim() || null;
         }
         if ("nextReviewAt" in payload) patch.next_review_at = payload.nextReviewAt ?? null;
 

@@ -135,6 +135,23 @@ function formatTimer(totalSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function getNotebookEntryTypeLabel(value: string) {
+  if (value === "rule") return "Regra";
+  if (value === "insight") return "Insight";
+  if (value === "trap") return "Pegadinha";
+  if (value === "commentary") return "Comentário";
+  return "Erro";
+}
+
+function getNotebookSourceKindLabel(value: string) {
+  if (value === "question") return "Questão";
+  if (value === "class") return "Aula";
+  if (value === "teacher_comment") return "Professor";
+  if (value === "book") return "Material";
+  if (value === "mock_exam") return "Simulado";
+  return "Manual";
+}
+
 export default function App() {
   const {
     currentDate,
@@ -296,11 +313,22 @@ export default function App() {
   const [errorNotebookForm, setErrorNotebookForm] = useState({
     subjectId: "",
     topicId: "",
+    entryType: "error" as "error" | "rule" | "insight" | "trap" | "commentary",
+    sourceKind: "manual" as
+      | "question"
+      | "class"
+      | "teacher_comment"
+      | "book"
+      | "manual"
+      | "mock_exam",
+    sourceLabel: "",
     title: "",
     promptSnapshot: "",
     userErrorReason: "",
     correctReason: "",
     avoidanceNote: "",
+    teacherComment: "",
+    reviewNote: "",
   });
   const [timerSeconds, setTimerSeconds] = useState(50 * 60);
   const [timerRunning, setTimerRunning] = useState(false);
@@ -557,21 +585,31 @@ export default function App() {
     await createErrorNotebookEntry({
       subjectId: errorNotebookForm.subjectId || null,
       topicId: errorNotebookForm.topicId || null,
+      entryType: errorNotebookForm.entryType,
+      sourceKind: errorNotebookForm.sourceKind,
+      sourceLabel: errorNotebookForm.sourceLabel,
       title: errorNotebookForm.title,
       promptSnapshot: errorNotebookForm.promptSnapshot,
       userErrorReason: errorNotebookForm.userErrorReason,
       correctReason: errorNotebookForm.correctReason,
       avoidanceNote: errorNotebookForm.avoidanceNote,
+      teacherComment: errorNotebookForm.teacherComment,
+      reviewNote: errorNotebookForm.reviewNote,
     });
 
     setErrorNotebookForm({
       subjectId: "",
       topicId: "",
+      entryType: "error",
+      sourceKind: "manual",
+      sourceLabel: "",
       title: "",
       promptSnapshot: "",
       userErrorReason: "",
       correctReason: "",
       avoidanceNote: "",
+      teacherComment: "",
+      reviewNote: "",
     });
   };
 
@@ -588,12 +626,17 @@ export default function App() {
       return [
         subjectName,
         topicTitle,
+        getNotebookEntryTypeLabel(entry.entry_type),
+        getNotebookSourceKindLabel(entry.source_kind),
+        entry.source_label ?? "",
         entry.title,
         entry.entry_status,
         entry.error_count,
         entry.user_error_reason ?? "",
         entry.correct_reason ?? "",
         entry.avoidance_note ?? "",
+        entry.teacher_comment ?? "",
+        entry.review_note ?? "",
         entry.last_error_at,
       ];
     });
@@ -602,12 +645,17 @@ export default function App() {
       [
         "Disciplina",
         "Topico",
+        "Tipo",
+        "Origem",
+        "Referencia",
         "Titulo",
         "Status",
         "Qtde de erros",
         "Motivo do erro",
         "Regra correta",
         "Como evitar",
+        "Comentario do professor",
+        "Nota de revisao",
         "Ultimo erro",
       ],
       ...rows,
@@ -621,7 +669,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "studyflow-caderno-de-erros.csv";
+    anchor.download = "studyflow-caderno-de-revisao.csv";
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -640,10 +688,13 @@ export default function App() {
         return `
           <article style="border:1px solid #dbe1ea;border-radius:16px;padding:16px;margin-bottom:12px;">
             <h3 style="margin:0 0 6px 0;font-size:16px;">${escapeHtml(entry.title)}</h3>
-            <p style="margin:0 0 8px 0;color:#475569;font-size:12px;">${escapeHtml(subjectName)} • ${escapeHtml(topicTitle)} • status ${escapeHtml(entry.entry_status)}</p>
+            <p style="margin:0 0 8px 0;color:#475569;font-size:12px;">${escapeHtml(subjectName)} • ${escapeHtml(topicTitle)} • ${escapeHtml(getNotebookEntryTypeLabel(entry.entry_type))} • ${escapeHtml(getNotebookSourceKindLabel(entry.source_kind))} • status ${escapeHtml(entry.entry_status)}</p>
+            <p style="margin:0 0 8px 0;"><strong>Referência:</strong> ${escapeHtml(entry.source_label ?? "-")}</p>
             <p style="margin:0 0 8px 0;"><strong>Motivo:</strong> ${escapeHtml(entry.user_error_reason ?? "-")}</p>
             <p style="margin:0 0 8px 0;"><strong>Regra correta:</strong> ${escapeHtml(entry.correct_reason ?? "-")}</p>
-            <p style="margin:0;"><strong>Como evitar:</strong> ${escapeHtml(entry.avoidance_note ?? "-")}</p>
+            <p style="margin:0 0 8px 0;"><strong>Como evitar:</strong> ${escapeHtml(entry.avoidance_note ?? "-")}</p>
+            <p style="margin:0 0 8px 0;"><strong>Comentário do professor:</strong> ${escapeHtml(entry.teacher_comment ?? "-")}</p>
+            <p style="margin:0;"><strong>Nota de revisão:</strong> ${escapeHtml(entry.review_note ?? "-")}</p>
           </article>
         `;
       })
@@ -658,7 +709,7 @@ export default function App() {
     printWindow.document.write(`
       <html>
         <head>
-          <title>Caderno de erros - StudyFlow</title>
+          <title>Caderno de revisão - StudyFlow</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
             h1 { margin-bottom: 8px; }
@@ -666,7 +717,7 @@ export default function App() {
           </style>
         </head>
         <body>
-          <h1>Caderno de erros</h1>
+          <h1>Caderno de revisão</h1>
           <p>Exportado em ${new Date().toLocaleString("pt-BR")}</p>
           ${printableRows}
         </body>
@@ -772,11 +823,15 @@ export default function App() {
           subjectId: nextPlannedItem.subject_id,
           topicId: effectiveTopic?.id ?? null,
           sourceSessionId: completedSession.id,
+          entryType: "error",
+          sourceKind: "question",
+          sourceLabel: "Erro capturado ao fechar sessão",
           title: `${nextDiscipline?.name ?? "Disciplina"} • ${effectiveTopic?.title ?? "erro registrado"}`,
           promptSnapshot: sessionForm.notes,
           userErrorReason: sessionForm.notes,
           correctReason: "",
           avoidanceNote: "",
+          reviewNote: sessionForm.notes,
         });
       }
       await syncSessionAnalytics({
@@ -2614,7 +2669,7 @@ export default function App() {
             <div>
               <h2 className="text-lg font-bold text-slate-950">Centro de revisões</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Separe o que é revisão por questões, o que é erro acumulado e o que é revisão por espaçamento.
+                Separe o que é revisão por questões, o que é ficha de revisão acumulada e o que é revisão por espaçamento.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -2622,7 +2677,7 @@ export default function App() {
                 {questionReviewQueue.length} questão(ões)
               </Badge>
               <Badge className="bg-rose-100 text-rose-700">
-                {openErrorNotebookEntries.length} erro(s)
+                {openErrorNotebookEntries.length} registro(s)
               </Badge>
               <Badge className="bg-violet-100 text-violet-700">
                 {reviewQueue.length} revisão(ões)
@@ -2788,7 +2843,7 @@ export default function App() {
                       : "bg-slate-100 font-medium text-slate-600"
                   }`}
                 >
-                  {errorNotebookError || "Sincronizando caderno de erros..."}
+                  {errorNotebookError || "Sincronizando caderno de revisão..."}
                 </div>
               )}
 
@@ -2808,7 +2863,7 @@ export default function App() {
                   <div>
                     <p className="text-sm font-black text-slate-950">Caderno de revisão</p>
                     <p className="mt-1 text-xs text-slate-500">
-                      Organize erros, regras e pegadinhas por disciplina para revisar como um material próprio.
+                      Organize erros, regras, pegadinhas e comentários por disciplina e assunto para revisar como material próprio.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs text-slate-500">
@@ -2860,6 +2915,68 @@ export default function App() {
                           </option>
                         ))}
                     </select>
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Tipo de registro
+                    <select
+                      value={errorNotebookForm.entryType}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({
+                          ...state,
+                          entryType: event.target.value as
+                            | "error"
+                            | "rule"
+                            | "insight"
+                            | "trap"
+                            | "commentary",
+                        }))
+                      }
+                      className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
+                    >
+                      <option value="error">Erro</option>
+                      <option value="rule">Regra</option>
+                      <option value="insight">Insight</option>
+                      <option value="trap">Pegadinha</option>
+                      <option value="commentary">Comentário</option>
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Origem
+                    <select
+                      value={errorNotebookForm.sourceKind}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({
+                          ...state,
+                          sourceKind: event.target.value as
+                            | "question"
+                            | "class"
+                            | "teacher_comment"
+                            | "book"
+                            | "manual"
+                            | "mock_exam",
+                        }))
+                      }
+                      className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
+                    >
+                      <option value="manual">Manual</option>
+                      <option value="question">Questão</option>
+                      <option value="class">Aula</option>
+                      <option value="teacher_comment">Professor</option>
+                      <option value="book">Material</option>
+                      <option value="mock_exam">Simulado</option>
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-600 md:col-span-2">
+                    Referência
+                    <input
+                      type="text"
+                      value={errorNotebookForm.sourceLabel}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({ ...state, sourceLabel: event.target.value }))
+                      }
+                      className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
+                      placeholder="Ex.: Q. 14 do PDF 3, Aula 07, comentário do professor"
+                    />
                   </label>
                   <label className="text-sm text-slate-600 md:col-span-2">
                     Título curto
@@ -2914,10 +3031,32 @@ export default function App() {
                       className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
                     />
                   </label>
+                  <label className="text-sm text-slate-600">
+                    Comentário do professor
+                    <textarea
+                      value={errorNotebookForm.teacherComment}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({ ...state, teacherComment: event.target.value }))
+                      }
+                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
+                      placeholder="Cole aqui a explicação, macete ou observação que vale revisar depois"
+                    />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Nota de revisão
+                    <textarea
+                      value={errorNotebookForm.reviewNote}
+                      onChange={(event) =>
+                        setErrorNotebookForm((state) => ({ ...state, reviewNote: event.target.value }))
+                      }
+                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
+                      placeholder="Sua síntese curta para bater o olho e lembrar rápido"
+                    />
+                  </label>
                 </div>
                 <div className="mt-4 flex gap-2">
                   <button type="button" onClick={handleCreateNotebookEntry} className={buttonPrimary}>
-                    Salvar anotação
+                    Salvar ficha
                   </button>
                 </div>
               </div>
@@ -2945,7 +3084,7 @@ export default function App() {
                         <div>
                           <p className="text-sm font-black text-slate-950">{group.subjectName}</p>
                           <p className="mt-1 text-xs text-slate-500">
-                            {group.totalEntries} anotação(ões) • {group.favoriteCount} destaque(s)
+                            {group.totalEntries} ficha(s) • {group.favoriteCount} destaque(s)
                           </p>
                         </div>
                         <div className="flex items-center gap-2 text-slate-500">
@@ -2971,9 +3110,15 @@ export default function App() {
                                       <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
                                         {entry.topicTitle}
                                       </span>
+                                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                                        {getNotebookEntryTypeLabel(entry.entry_type)}
+                                      </span>
+                                      <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+                                        {getNotebookSourceKindLabel(entry.source_kind)}
+                                      </span>
                                     </div>
                                     <p className="mt-1 text-xs text-slate-500">
-                                      Erros no tema: {entry.error_count} • Último registro em{" "}
+                                      Ocorrências: {entry.error_count} • Último registro em{" "}
                                       {format(parseISO(entry.last_error_at), "dd/MM")}
                                     </p>
                                   </div>
@@ -3002,6 +3147,12 @@ export default function App() {
                                   </div>
                                 )}
 
+                                {entry.source_label && (
+                                  <div className="mt-3 rounded-2xl bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
+                                    <strong>Referência:</strong> {entry.source_label}
+                                  </div>
+                                )}
+
                                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                                   <div className="rounded-2xl bg-rose-50 px-3 py-3">
                                     <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-rose-700">
@@ -3025,6 +3176,25 @@ export default function App() {
                                     </p>
                                     <p className="mt-1 text-sm text-amber-900">
                                       {entry.avoidance_note || "-"}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                  <div className="rounded-2xl bg-blue-50 px-3 py-3">
+                                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">
+                                      Comentário do professor
+                                    </p>
+                                    <p className="mt-1 text-sm text-blue-900">
+                                      {entry.teacher_comment || "-"}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-2xl bg-slate-100 px-3 py-3">
+                                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-700">
+                                      Nota de revisão
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-900">
+                                      {entry.review_note || "-"}
                                     </p>
                                   </div>
                                 </div>
@@ -3069,7 +3239,7 @@ export default function App() {
 
               {openErrorNotebookEntries.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                  Nenhuma anotação no caderno de erros ainda.
+                  Nenhuma ficha no caderno de revisão ainda.
                 </div>
               )}
             </div>
