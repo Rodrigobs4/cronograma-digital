@@ -19,6 +19,7 @@ import {
   PauseCircle,
   PlayCircle,
   Plus,
+  Printer,
   RotateCcw,
   Sparkles,
   Star,
@@ -150,6 +151,197 @@ function getNotebookSourceKindLabel(value: string) {
   if (value === "book") return "Material";
   if (value === "mock_exam") return "Simulado";
   return "Manual";
+}
+
+function buildErrorNotebookPrintableHtml(input: {
+  entries: Array<{
+    entry_type: string;
+    source_kind: string;
+    source_label: string | null;
+    title: string;
+    entry_status: string;
+    error_count: number;
+    user_error_reason: string | null;
+    correct_reason: string | null;
+    avoidance_note: string | null;
+    teacher_comment: string | null;
+    review_note: string | null;
+    subject_id: string | null;
+    topic_id: string | null;
+  }>;
+  subjects: Array<{ id: string; name: string }>;
+  topics: Array<{ id: string; title: string }>;
+}) {
+  const groups = Object.values(
+    input.entries.reduce<
+      Record<
+        string,
+        {
+          subjectName: string;
+          items: Array<{
+            topicTitle: string;
+            entryTypeLabel: string;
+            sourceKindLabel: string;
+            sourceLabel: string | null;
+            title: string;
+            entryStatus: string;
+            errorCount: number;
+            userErrorReason: string | null;
+            correctReason: string | null;
+            avoidanceNote: string | null;
+            teacherComment: string | null;
+            reviewNote: string | null;
+          }>;
+        }
+      >
+    >((accumulator, entry) => {
+      const subjectName =
+        input.subjects.find((subject) => subject.id === entry.subject_id)?.name ??
+        "Sem disciplina";
+      const topicTitle =
+        input.topics.find((topic) => topic.id === entry.topic_id)?.title ?? "Anotação geral";
+      const key = entry.subject_id ?? "__unlinked__";
+
+      if (!accumulator[key]) {
+        accumulator[key] = {
+          subjectName,
+          items: [],
+        };
+      }
+
+      accumulator[key].items.push({
+        topicTitle,
+        entryTypeLabel: getNotebookEntryTypeLabel(entry.entry_type),
+        sourceKindLabel: getNotebookSourceKindLabel(entry.source_kind),
+        sourceLabel: entry.source_label,
+        title: entry.title,
+        entryStatus: entry.entry_status,
+        errorCount: entry.error_count,
+        userErrorReason: entry.user_error_reason,
+        correctReason: entry.correct_reason,
+        avoidanceNote: entry.avoidance_note,
+        teacherComment: entry.teacher_comment,
+        reviewNote: entry.review_note,
+      });
+
+      return accumulator;
+    }, {}),
+  ).sort((left, right) => left.subjectName.localeCompare(right.subjectName, "pt-BR"));
+
+  const totalEntries = input.entries.length;
+  const favoriteStyleNote = totalEntries === 1 ? "1 ficha" : `${totalEntries} fichas`;
+  const printableGroups = groups
+    .map((group) => {
+      const cards = group.items
+        .sort((left, right) => left.topicTitle.localeCompare(right.topicTitle, "pt-BR"))
+        .map(
+          (item) => `
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3>${escapeHtml(item.title)}</h3>
+                  <p class="meta">${escapeHtml(item.topicTitle)} • ${escapeHtml(item.entryTypeLabel)} • ${escapeHtml(item.sourceKindLabel)} • status ${escapeHtml(item.entryStatus)}</p>
+                </div>
+                <span class="count">${item.errorCount} ocorrência(s)</span>
+              </div>
+              ${item.sourceLabel ? `<p class="reference"><strong>Referência:</strong> ${escapeHtml(item.sourceLabel)}</p>` : ""}
+              <div class="grid">
+                <section>
+                  <h4>Onde errei</h4>
+                  <p>${escapeHtml(item.userErrorReason ?? "-")}</p>
+                </section>
+                <section>
+                  <h4>Regra correta</h4>
+                  <p>${escapeHtml(item.correctReason ?? "-")}</p>
+                </section>
+                <section>
+                  <h4>Como evitar</h4>
+                  <p>${escapeHtml(item.avoidanceNote ?? "-")}</p>
+                </section>
+                <section>
+                  <h4>Comentário do professor</h4>
+                  <p>${escapeHtml(item.teacherComment ?? "-")}</p>
+                </section>
+              </div>
+              <section class="review-note">
+                <h4>Resumo de revisão</h4>
+                <p>${escapeHtml(item.reviewNote ?? "-")}</p>
+              </section>
+            </article>
+          `,
+        )
+        .join("");
+
+      return `
+        <section class="subject-group">
+          <div class="subject-header">
+            <h2>${escapeHtml(group.subjectName)}</h2>
+            <span>${group.items.length} ficha(s)</span>
+          </div>
+          ${cards}
+        </section>
+      `;
+    })
+    .join("");
+
+  return `
+    <html>
+      <head>
+        <title>Caderno de revisão - StudyFlow</title>
+        <style>
+          @page { margin: 16mm; size: A4; }
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; margin: 0; color: #0f172a; background: #f8fafc; }
+          .page { max-width: 980px; margin: 0 auto; padding: 24px; }
+          .hero { border: 1px solid #dbe1ea; border-radius: 18px; padding: 20px 22px; background: linear-gradient(135deg, #ffffff 0%, #eef6ff 100%); }
+          .hero h1 { margin: 0; font-size: 28px; }
+          .hero p { margin: 8px 0 0; color: #475569; line-height: 1.5; }
+          .summary { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+          .summary-chip { border-radius: 999px; background: #e2e8f0; color: #0f172a; font-size: 12px; font-weight: 700; padding: 7px 12px; }
+          .subject-group { margin-top: 18px; }
+          .subject-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #cbd5e1; }
+          .subject-header h2 { margin: 0; font-size: 20px; }
+          .subject-header span { font-size: 12px; font-weight: 700; color: #475569; background: #e2e8f0; border-radius: 999px; padding: 6px 10px; }
+          .card { break-inside: avoid; page-break-inside: avoid; border: 1px solid #dbe1ea; border-radius: 16px; background: #ffffff; padding: 16px; margin-bottom: 12px; }
+          .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+          .card-header h3 { margin: 0; font-size: 16px; }
+          .meta { margin: 6px 0 0; color: #475569; font-size: 12px; line-height: 1.4; }
+          .count { white-space: nowrap; border-radius: 999px; background: #fef3c7; color: #92400e; font-size: 12px; font-weight: 700; padding: 6px 10px; }
+          .reference { margin: 12px 0 0; font-size: 13px; color: #334155; }
+          .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+          .grid section, .review-note { border-radius: 12px; padding: 12px; }
+          .grid section:nth-child(1) { background: #fff1f2; }
+          .grid section:nth-child(2) { background: #ecfdf5; }
+          .grid section:nth-child(3) { background: #fffbeb; }
+          .grid section:nth-child(4) { background: #eff6ff; }
+          .review-note { margin-top: 10px; background: #f1f5f9; }
+          h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+          section p { margin: 0; line-height: 1.5; font-size: 13px; }
+          @media print {
+            body { background: #ffffff; }
+            .page { padding: 0; }
+          }
+          @media (max-width: 700px) {
+            .grid { grid-template-columns: 1fr; }
+          }
+        </style>
+      </head>
+      <body>
+        <main class="page">
+          <header class="hero">
+            <h1>Caderno de revisão</h1>
+            <p>Resumo organizado por disciplina e assunto para revisão rápida, impressão e estudo ativo.</p>
+            <div class="summary">
+              <span class="summary-chip">${favoriteStyleNote}</span>
+              <span class="summary-chip">${groups.length} disciplina(s)</span>
+              <span class="summary-chip">Gerado em ${new Date().toLocaleString("pt-BR")}</span>
+            </div>
+          </header>
+          ${printableGroups}
+        </main>
+      </body>
+    </html>
+  `;
 }
 
 export default function App() {
@@ -679,26 +871,11 @@ export default function App() {
       return;
     }
 
-    const printableRows = errorNotebookEntries
-      .map((entry) => {
-        const subjectName =
-          subjects.find((subject) => subject.id === entry.subject_id)?.name ?? "Sem disciplina";
-        const topicTitle = topics.find((topic) => topic.id === entry.topic_id)?.title ?? "Sem tópico";
-
-        return `
-          <article style="border:1px solid #dbe1ea;border-radius:16px;padding:16px;margin-bottom:12px;">
-            <h3 style="margin:0 0 6px 0;font-size:16px;">${escapeHtml(entry.title)}</h3>
-            <p style="margin:0 0 8px 0;color:#475569;font-size:12px;">${escapeHtml(subjectName)} • ${escapeHtml(topicTitle)} • ${escapeHtml(getNotebookEntryTypeLabel(entry.entry_type))} • ${escapeHtml(getNotebookSourceKindLabel(entry.source_kind))} • status ${escapeHtml(entry.entry_status)}</p>
-            <p style="margin:0 0 8px 0;"><strong>Referência:</strong> ${escapeHtml(entry.source_label ?? "-")}</p>
-            <p style="margin:0 0 8px 0;"><strong>Motivo:</strong> ${escapeHtml(entry.user_error_reason ?? "-")}</p>
-            <p style="margin:0 0 8px 0;"><strong>Regra correta:</strong> ${escapeHtml(entry.correct_reason ?? "-")}</p>
-            <p style="margin:0 0 8px 0;"><strong>Como evitar:</strong> ${escapeHtml(entry.avoidance_note ?? "-")}</p>
-            <p style="margin:0 0 8px 0;"><strong>Comentário do professor:</strong> ${escapeHtml(entry.teacher_comment ?? "-")}</p>
-            <p style="margin:0;"><strong>Nota de revisão:</strong> ${escapeHtml(entry.review_note ?? "-")}</p>
-          </article>
-        `;
-      })
-      .join("");
+    const printableHtml = buildErrorNotebookPrintableHtml({
+      entries: errorNotebookEntries,
+      subjects: subjects.map((subject) => ({ id: subject.id, name: subject.name })),
+      topics: topics.map((topic) => ({ id: topic.id, title: topic.title })),
+    });
 
     const printWindow = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
 
@@ -706,23 +883,30 @@ export default function App() {
       return;
     }
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Caderno de revisão - StudyFlow</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
-            h1 { margin-bottom: 8px; }
-            p { line-height: 1.5; }
-          </style>
-        </head>
-        <body>
-          <h1>Caderno de revisão</h1>
-          <p>Exportado em ${new Date().toLocaleString("pt-BR")}</p>
-          ${printableRows}
-        </body>
-      </html>
-    `);
+    printWindow.document.write(printableHtml);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
+
+  const handlePrintErrorNotebook = () => {
+    if (errorNotebookEntries.length === 0) {
+      return;
+    }
+
+    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
+
+    if (!printWindow) {
+      return;
+    }
+
+    printWindow.document.write(
+      buildErrorNotebookPrintableHtml({
+        entries: errorNotebookEntries,
+        subjects: subjects.map((subject) => ({ id: subject.id, name: subject.name })),
+        topics: topics.map((topic) => ({ id: topic.id, title: topic.title })),
+      }),
+    );
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
@@ -2848,6 +3032,10 @@ export default function App() {
               )}
 
               <div className="flex flex-wrap justify-end gap-2">
+                <button type="button" onClick={handlePrintErrorNotebook} className={buttonSecondary}>
+                  <Printer className="mr-1 h-4 w-4" />
+                  Imprimir
+                </button>
                 <button type="button" onClick={handleExportErrorNotebookCsv} className={buttonSecondary}>
                   <Download className="mr-1 h-4 w-4" />
                   CSV
