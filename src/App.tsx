@@ -505,21 +505,7 @@ export default function App() {
   const [errorNotebookForm, setErrorNotebookForm] = useState({
     subjectId: "",
     topicId: "",
-    entryType: "error" as "error" | "rule" | "insight" | "trap" | "commentary",
-    sourceKind: "manual" as
-      | "question"
-      | "class"
-      | "teacher_comment"
-      | "book"
-      | "manual"
-      | "mock_exam",
-    sourceLabel: "",
     title: "",
-    promptSnapshot: "",
-    userErrorReason: "",
-    correctReason: "",
-    avoidanceNote: "",
-    teacherComment: "",
     reviewNote: "",
   });
   const [timerSeconds, setTimerSeconds] = useState(50 * 60);
@@ -770,37 +756,24 @@ export default function App() {
   };
 
   const handleCreateNotebookEntry = async () => {
-    if (!errorNotebookForm.title.trim()) {
+    const title = errorNotebookForm.title.trim();
+    const reviewNote = errorNotebookForm.reviewNote.trim();
+
+    if (!title && !reviewNote && !errorNotebookForm.subjectId && !errorNotebookForm.topicId) {
       return;
     }
 
     await createErrorNotebookEntry({
       subjectId: errorNotebookForm.subjectId || null,
       topicId: errorNotebookForm.topicId || null,
-      entryType: errorNotebookForm.entryType,
-      sourceKind: errorNotebookForm.sourceKind,
-      sourceLabel: errorNotebookForm.sourceLabel,
-      title: errorNotebookForm.title,
-      promptSnapshot: errorNotebookForm.promptSnapshot,
-      userErrorReason: errorNotebookForm.userErrorReason,
-      correctReason: errorNotebookForm.correctReason,
-      avoidanceNote: errorNotebookForm.avoidanceNote,
-      teacherComment: errorNotebookForm.teacherComment,
-      reviewNote: errorNotebookForm.reviewNote,
+      title: title || reviewNote.slice(0, 72) || "Anotação rápida",
+      reviewNote,
     });
 
     setErrorNotebookForm({
       subjectId: "",
       topicId: "",
-      entryType: "error",
-      sourceKind: "manual",
-      sourceLabel: "",
       title: "",
-      promptSnapshot: "",
-      userErrorReason: "",
-      correctReason: "",
-      avoidanceNote: "",
-      teacherComment: "",
       reviewNote: "",
     });
   };
@@ -3051,7 +3024,7 @@ export default function App() {
                   <div>
                     <p className="text-sm font-black text-slate-950">Caderno de revisão</p>
                     <p className="mt-1 text-xs text-slate-500">
-                      Organize erros, regras, pegadinhas e comentários por disciplina e assunto para revisar como material próprio.
+                      Registre só o essencial para bater o olho e lembrar rápido. Nenhum campo é obrigatório.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs text-slate-500">
@@ -3104,68 +3077,6 @@ export default function App() {
                         ))}
                     </select>
                   </label>
-                  <label className="text-sm text-slate-600">
-                    Tipo de registro
-                    <select
-                      value={errorNotebookForm.entryType}
-                      onChange={(event) =>
-                        setErrorNotebookForm((state) => ({
-                          ...state,
-                          entryType: event.target.value as
-                            | "error"
-                            | "rule"
-                            | "insight"
-                            | "trap"
-                            | "commentary",
-                        }))
-                      }
-                      className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
-                    >
-                      <option value="error">Erro</option>
-                      <option value="rule">Regra</option>
-                      <option value="insight">Insight</option>
-                      <option value="trap">Pegadinha</option>
-                      <option value="commentary">Comentário</option>
-                    </select>
-                  </label>
-                  <label className="text-sm text-slate-600">
-                    Origem
-                    <select
-                      value={errorNotebookForm.sourceKind}
-                      onChange={(event) =>
-                        setErrorNotebookForm((state) => ({
-                          ...state,
-                          sourceKind: event.target.value as
-                            | "question"
-                            | "class"
-                            | "teacher_comment"
-                            | "book"
-                            | "manual"
-                            | "mock_exam",
-                        }))
-                      }
-                      className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
-                    >
-                      <option value="manual">Manual</option>
-                      <option value="question">Questão</option>
-                      <option value="class">Aula</option>
-                      <option value="teacher_comment">Professor</option>
-                      <option value="book">Material</option>
-                      <option value="mock_exam">Simulado</option>
-                    </select>
-                  </label>
-                  <label className="text-sm text-slate-600 md:col-span-2">
-                    Referência
-                    <input
-                      type="text"
-                      value={errorNotebookForm.sourceLabel}
-                      onChange={(event) =>
-                        setErrorNotebookForm((state) => ({ ...state, sourceLabel: event.target.value }))
-                      }
-                      className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
-                      placeholder="Ex.: Q. 14 do PDF 3, Aula 07, comentário do professor"
-                    />
-                  </label>
                   <label className="text-sm text-slate-600 md:col-span-2">
                     Título curto
                     <input
@@ -3175,76 +3086,24 @@ export default function App() {
                         setErrorNotebookForm((state) => ({ ...state, title: event.target.value }))
                       }
                       className="mt-1.5 h-9 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-sky-300"
-                      placeholder="Ex.: confundi competência privativa com concorrente"
+                      placeholder="Ex.: Competência privativa x concorrente"
                     />
                   </label>
                   <label className="text-sm text-slate-600 md:col-span-2">
-                    Questão / contexto
-                    <textarea
-                      value={errorNotebookForm.promptSnapshot}
-                      onChange={(event) =>
-                        setErrorNotebookForm((state) => ({ ...state, promptSnapshot: event.target.value }))
-                      }
-                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
-                      placeholder="Resumo da questão, pegadinha ou situação"
-                    />
-                  </label>
-                  <label className="text-sm text-slate-600">
-                    Motivo do erro
-                    <textarea
-                      value={errorNotebookForm.userErrorReason}
-                      onChange={(event) =>
-                        setErrorNotebookForm((state) => ({ ...state, userErrorReason: event.target.value }))
-                      }
-                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
-                    />
-                  </label>
-                  <label className="text-sm text-slate-600">
-                    Regra correta
-                    <textarea
-                      value={errorNotebookForm.correctReason}
-                      onChange={(event) =>
-                        setErrorNotebookForm((state) => ({ ...state, correctReason: event.target.value }))
-                      }
-                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
-                    />
-                  </label>
-                  <label className="text-sm text-slate-600 md:col-span-2">
-                    Como evitar
-                    <textarea
-                      value={errorNotebookForm.avoidanceNote}
-                      onChange={(event) =>
-                        setErrorNotebookForm((state) => ({ ...state, avoidanceNote: event.target.value }))
-                      }
-                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
-                    />
-                  </label>
-                  <label className="text-sm text-slate-600">
-                    Comentário do professor
-                    <textarea
-                      value={errorNotebookForm.teacherComment}
-                      onChange={(event) =>
-                        setErrorNotebookForm((state) => ({ ...state, teacherComment: event.target.value }))
-                      }
-                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
-                      placeholder="Cole aqui a explicação, macete ou observação que vale revisar depois"
-                    />
-                  </label>
-                  <label className="text-sm text-slate-600">
-                    Nota de revisão
+                    Resumo para revisão
                     <textarea
                       value={errorNotebookForm.reviewNote}
                       onChange={(event) =>
                         setErrorNotebookForm((state) => ({ ...state, reviewNote: event.target.value }))
                       }
-                      className="mt-1.5 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
-                      placeholder="Sua síntese curta para bater o olho e lembrar rápido"
+                      className="mt-1.5 min-h-28 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-sky-300"
+                      placeholder="Ex.: Em competência concorrente, a União faz normas gerais e os estados suplementam. Se a banca falar norma específica do estado, não marcar privativa."
                     />
                   </label>
                 </div>
                 <div className="mt-4 flex gap-2">
                   <button type="button" onClick={handleCreateNotebookEntry} className={buttonPrimary}>
-                    Salvar ficha
+                    Salvar anotação
                   </button>
                 </div>
               </div>
@@ -3298,12 +3157,6 @@ export default function App() {
                                       <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
                                         {entry.topicTitle}
                                       </span>
-                                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
-                                        {getNotebookEntryTypeLabel(entry.entry_type)}
-                                      </span>
-                                      <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
-                                        {getNotebookSourceKindLabel(entry.source_kind)}
-                                      </span>
                                     </div>
                                     <p className="mt-1 text-xs text-slate-500">
                                       Ocorrências: {entry.error_count} • Último registro em{" "}
@@ -3329,63 +3182,45 @@ export default function App() {
                                   </button>
                                 </div>
 
-                                {entry.prompt_snapshot && (
-                                  <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                                    <strong className="text-slate-800">Contexto:</strong> {entry.prompt_snapshot}
+                                {(entry.review_note || entry.correct_reason || entry.user_error_reason) && (
+                                  <div className="mt-3 space-y-3">
+                                    {entry.review_note && (
+                                      <div className="rounded-2xl bg-slate-100 px-3 py-3">
+                                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-700">
+                                          Resumo de revisão
+                                        </p>
+                                        <p className="mt-1 text-sm leading-6 text-slate-950">
+                                          {entry.review_note}
+                                        </p>
+                                      </div>
+                                    )}
+
+                                    {(entry.correct_reason || entry.user_error_reason) && (
+                                      <div className="grid gap-3 md:grid-cols-2">
+                                        {entry.correct_reason && (
+                                          <div className="rounded-2xl bg-emerald-50 px-3 py-3">
+                                            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-700">
+                                              Regra correta
+                                            </p>
+                                            <p className="mt-1 text-sm text-emerald-900">
+                                              {entry.correct_reason}
+                                            </p>
+                                          </div>
+                                        )}
+                                        {entry.user_error_reason && (
+                                          <div className="rounded-2xl bg-rose-50 px-3 py-3">
+                                            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-rose-700">
+                                              Onde errei
+                                            </p>
+                                            <p className="mt-1 text-sm text-rose-900">
+                                              {entry.user_error_reason}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
-
-                                {entry.source_label && (
-                                  <div className="mt-3 rounded-2xl bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
-                                    <strong>Referência:</strong> {entry.source_label}
-                                  </div>
-                                )}
-
-                                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                                  <div className="rounded-2xl bg-rose-50 px-3 py-3">
-                                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-rose-700">
-                                      Onde errei
-                                    </p>
-                                    <p className="mt-1 text-sm text-rose-900">
-                                      {entry.user_error_reason || "-"}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-2xl bg-emerald-50 px-3 py-3">
-                                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-700">
-                                      Regra correta
-                                    </p>
-                                    <p className="mt-1 text-sm text-emerald-900">
-                                      {entry.correct_reason || "-"}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-2xl bg-amber-50 px-3 py-3">
-                                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-amber-700">
-                                      Como evitar
-                                    </p>
-                                    <p className="mt-1 text-sm text-amber-900">
-                                      {entry.avoidance_note || "-"}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                  <div className="rounded-2xl bg-blue-50 px-3 py-3">
-                                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-blue-700">
-                                      Comentário do professor
-                                    </p>
-                                    <p className="mt-1 text-sm text-blue-900">
-                                      {entry.teacher_comment || "-"}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-2xl bg-slate-100 px-3 py-3">
-                                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-700">
-                                      Nota de revisão
-                                    </p>
-                                    <p className="mt-1 text-sm text-slate-900">
-                                      {entry.review_note || "-"}
-                                    </p>
-                                  </div>
-                                </div>
 
                                 <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                                   <select
